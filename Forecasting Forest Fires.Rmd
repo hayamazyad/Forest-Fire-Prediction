@@ -1,0 +1,1707 @@
+---
+title: "Forecasting Forest Fires: The Role of Fire Weather Indices"
+author: "Joudy Allam, Haya Mazyad, Nour Saad"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output: 
+  html_document: 
+    toc: true
+    toc_float: true
+    theme: 
+      version: 4
+      bootswatch: litera       # A clean and readable theme
+
+fontsize: 16pt
+---
+```{r, echo=FALSE, fig.width=10, fig.height=6, out.width="100%", fig.align="center"}
+knitr::include_graphics("https://img.freepik.com/premium-photo/dramatic-forest-fire-scene_260899-11943.jpg")
+
+```
+
+
+# Introduction
+
+Forest fires are a significant environmental disaster that cause immense economic and ecological damage and pose a threat to human lives. Accurate prediction of such critical events is essential to mitigate these threats effectively. This project aims to develop machine learning models to predict forest fires using a dataset of fire weather indices collected from two regions in Canada, Cordillera and Hudson Bay.
+
+## Dataset Description
+
+The dataset titled `forest_fires_dataset.csv` includes 244 observations with the following features:
+
+-   **Date**: Observations from June to September 2012.
+-   **Temp**: Maximum temperature at noon in Celsius.
+-   **RH**: Relative Humidity in percentage.
+-   **Ws**: Wind speed in km/h.
+-   **Rain**: Total precipitation in mm.
+-   **FWI Components**: The Canadian Forest Fire Weather Index System includes six components calculated based on consecutive daily observations of temp, RH, Ws, and Rain, and that provide numeric ratings of relative potential for wildland fire:
+    -   **Fuel Moisture Codes**: These are numeric ratings that represent the moisture content of the forest floor and other dead organic matter across three distinct layers. As the moisture content decreases, the numeric value of these codes increases, signaling drier conditions more susceptible to ignition and sustained burning.
+        1.  **Fine Fuel Moisture Code (FFMC)**: Rates the moisture content of surface litter and cured fine fuels, affecting ignition ease and flammability.
+        2.  **Duff Moisture Code (DMC)**: Represents the moisture content of loosely compacted organic layers, affecting fuel consumption in moderate duff layers and medium-sized woody materials.
+        3.  **Drought Code (DC)**: Indicates the moisture content in deep, compact organic layers, serving as a seasonal drought effect indicator on forest fuels and the amount of smoldering in deep duff layers and large logs.
+    -   **Fire Behavior Indices**
+        1.  **Initial Spread Index (ISI)**: Predicts the rate of fire spread based on wind speed and *FFMC*.
+        2.  **Buildup Index (BUI)**: Quantifies the total fuel available for combustion, based on DMC and DC values.
+        3.  **Fire Weather Index (FWI)**: A composite index of fire intensity derived from ISI and BUI, used widely to gauge fire danger across forested areas of Canada.
+-   **Classes**: Fire occurrence categorized as "fire" or "not fire".
+
+## Objective
+
+The goal is to build and compare various machine learning models based on the provided fire weather indices to predict the likelihood of forest fires.
+
+# Data Loading and Preprocessing
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+We have loaded the following R packages, each chosen for their specific capabilities in data processing, analysis, and visualization:
+
+-   **dplyr**: Utilized for its powerful data manipulation tools, enabling data filtering, selection, and transformation.
+-   **tidyr**: Essential for tidying data, transforming it into a format that is easy to analyze and manipulate.
+-   **readr**: Efficiently reads and writes tabular data, streamlining the process of data input and output.
+-   **caret**: A comprehensive package for building and assessing machine learning models, offering a wide range of tools for model training and evaluation.
+-   **ggplot2**: Based on the Grammar of Graphics, this package allows for the creation of complex, layered statistical graphics.
+-   **GGally**: Extends ggplot2, adding additional functionality for plotting common statistical figures.
+-   **randomForest**: Implements the random forest algorithm for classification and regression tasks, providing robust and interpretable models.
+-   **caTools**: Includes tools for splitting data sets, generating ROC curves, and other miscellaneous methods useful in data analysis.
+-   **stats**: Provides a wide array of statistical functions including probability distributions, regression models, and cluster analysis.
+-   **pROC**: Specialized in ROC analysis, offering tools to visualize and evaluate classifiers' performance.
+-   **MASS**: Offers a variety of statistical functions that support the content of the book "Modern Applied Statistics with S," which includes logistic regression, linear discriminant analysis, and more.
+-   **class**: Contains functions for k-nearest neighbors (KNN) classification, a simple yet effective machine learning technique.
+-   **rpart**: Facilitates recursive partitioning for the creation of decision trees, used in classification and regression models.
+-   **rpart.plot**: Enhances decision tree visualizations created with rpart, making them more interpretable.
+-   **gbm**: Implements gradient boosting models that are effective for dealing with various types of predictive modeling problems.
+-   **e1071**: A versatile package that includes support vector machines, Fourier transforms, and other statistical tools.
+-   **DescTools**: Offers tools for descriptive statistics and data transformations, including Winsorization and various statistical tests.
+-   **bslib**: Enables the customization of themes for Shiny and R Markdown applications, improving the aesthetic appeal and user experience of data visualizations and applications. 
+-   **knitr**:  Allows for dynamic report generation with R, making it easier to integrate R code into LaTeX, HTML, Markdown, or other document formats.
+-   **kableExtra**: Enhances tables generated with knitr::kable() by providing additional styling options and functionalities. 
+
+Each package is integral to performing comprehensive data analysis, from preprocessing to model evaluation, ensuring robust and efficient processing across various stages of our project.
+
+```{R, message=F, warning=F, include=FALSE}
+
+# Install necessary packages individually if they are not already installed
+if (!require(corrplot)) install.packages("corrplot")
+if (!require(dplyr)) install.packages("dplyr")
+if (!require(tidyr)) install.packages("tidyr")
+if (!require(readr)) install.packages("readr")
+if (!require(caret)) install.packages("caret")
+if (!require(ggplot2)) install.packages("ggplot2")
+if (!require(GGally)) install.packages("GGally")
+if (!require(randomForest)) install.packages("randomForest")
+if (!require(caTools)) install.packages("caTools")
+if (!require(stats)) install.packages("stats")
+if (!require(pROC)) install.packages("pROC")
+if (!require(MASS)) install.packages("MASS")
+if (!require(class)) install.packages("class")
+if (!require(rpart)) install.packages("rpart")
+if (!require(rpart.plot)) install.packages("rpart.plot")
+if (!require(gbm)) install.packages("gbm")
+if (!require(e1071)) install.packages("e1071")
+if (!require(DescTools)) install.packages("DescTools")
+if (!require(bslib)) install.packages("bslib")
+if (!require(knitr)) install.packages("knitr")
+
+```
+
+```{R, message=F, warning=F}
+library(dplyr)
+library(tidyr)
+library(readr)
+library(caret)
+library(ggplot2)
+library(GGally)
+library(randomForest)
+library(caTools)
+library(stats)
+library(pROC)
+library(MASS)
+library(class) 
+library(rpart)
+library(rpart.plot)
+library(gbm)
+library(e1071)
+library(DescTools)
+library(bslib)
+library(knitr)
+library(kableExtra)
+```
+
+## Load Data
+
+We begin by loading the dataset `forest_fires_dataset.csv` from a specified path. It's important to ensure the path is correctly set to the location of the dataset on your local machine or server. During the loading process, we handle initial data cleanliness by replacing all empty strings with `NA`. This is done to standardize missing value representation across the dataset, making subsequent data cleaning steps more straightforward.
+
+```{R, message=F, warning=F}
+# Modify the path as needed to point to the actual file location
+fire_data <- read.csv("C:/Users/User/Desktop/University/BIF524 - Data Mining/Project/forest_fires_dataset.csv", header = FALSE) %>%
+  # Replace empty strings with NA across all columns
+  mutate(across(everything(), ~na_if(.x, "")))
+
+```
+
+## Preliminary data inspection
+
+After loading the data, it's crucial to inspect its structure to understand its format and the nature of the data we're dealing with.
+
+```{R, message=F, warning=F}
+str(fire_data)        # Display the structure of the dataframe
+summary(fire_data)    # Summarize the data to get a statistical overview
+
+```
+
+Upon initial inspection, we observe the following characteristics of our data:
+
+-   **Header Presence**: The dataset is loaded without predefined headers (`header = FALSE`), resulting in generic column names (V1 to V14). This was expected and intentional, allowing for flexible data manipulation and customized header assignment based on dataset specifics.
+-   **Data Sectioning**: The dataset is structured into sections for two distinct locations: "Cordillera" and "Hudson Bay". Each section is preceded by specific headers and separated by empty lines, indicating a structured pattern in our dataset where different location data are interspersed with metadata.
+-   **Column Names and Data Rows**: Each data section starts with a row indicating the location name followed by another row containing column names such as "*day*", "*month*", "*year*", "*Temperature*", "*RH*", "*Ws*", "*Rain*", "*FFMC*", "*DMC*", "*DC*", "*ISI*", "*BUI*", "*FWI*", and "*Classes*". These headers are crucial for understanding the content of each column and will be programmatically set in the dataframe.
+-   **Character Data Type**: All columns were initially read as character strings (`chr`). This necessitates a planned conversion to appropriate data types (numeric or factor), which will enable accurate statistical analysis and machine learning modeling.
+-   **Data Cleaning Needs**: Initial observations show that data points are not consistently stripped of spaces (e.g., "Classes ", "not fire ", and " Ws"). Moreover, the presence of redundant rows used as headers within the data sections and potential NA values will require careful cleaning to ensure the dataset's integrity and usability.
+
+#### Step 1: Handling Location Metadata and Headers
+
+In this step, we address the initial data organization by managing location information and setting up proper headers. Our objective is not to lose the location information but rather enhance its clarity by integrating it directly into the dataset. This involves creating a new '*Location*' column and ensuring that each data point is associated with its respective location.
+
+**Process Explanation**:
+
+-   **Data Separation**: The dataset includes data for two distinct locations ("Cordillera" and "Hudson Bay"), separated by an empty line. We first split the dataset at this line to handle each location separately.
+-   **Header and Location Management**: For each split dataset:
+-   **Set Column Names**: The second row of each section contains the appropriate column names, which we assign as headers for the dataset.
+-   **Add Location Column**: The first row of each section specifies the location. We extract this information and create a new 'Location' column to ensure each row is labeled with its corresponding location.
+-   **Remove Redundant Rows**: The first two rows of each section (location name and column headers) are removed after their information is captured and set properly.
+-   **Combining Data**: The cleaned data parts (`df_part1` and `df_part2`), each now containing appropriate headers and a new 'Location' column, are combined into one unified dataset `final_data`. This is done using the `bind_rows()` function, which stacks the two data frames vertically, preserving the order and the integrity of the data.
+
+```{R, message=F, warning=F}
+# Find the index of the first NA in the first column, indicating the break between data sections
+break_indices <- which(is.na(fire_data$V1))
+
+
+# Split the data into two parts based on the location of the break
+df_part1 <- fire_data[1:(break_indices[1] - 1), ]
+df_part2 <- fire_data[(break_indices[1] + 1):nrow(fire_data), ]
+
+
+# For each data section (each section represents the data of one location):
+  # Set column names from the second row (header)
+  # Add a 'Location' column: assign location from the first row ('Cordillera' or 'Hudson Bay')
+  # Remove the first two rows
+names(df_part1) <- make.names(trimws(unlist(df_part1[2, ])))
+df_part1$Location <- df_part1[1,1]
+df_part1 <- df_part1[-c(1,2),]
+
+names(df_part2) <- make.names(trimws(unlist(df_part2[2, ])))
+df_part2$Location <- df_part2[1,1]
+df_part2 <- df_part2[-c(1,2),]
+
+
+#Combine the two parts back into a single dataframe
+final_data <- bind_rows(df_part1, df_part2)
+
+```
+
+#### Step 2: Data Type Conversion
+
+Initially, all data columns were read as characters due to the CSV import settings. We converted these columns to their appropriate data types to ensure accurate computations and analyses later in our project.
+
+We converted key variables like *Temperature* and *Rain* to numeric types to enable essential operations such as averaging and summing, crucial for our data analysis and modeling tasks.
+
+```{R, message=F, warning=F}
+
+# Convert all columns from character to their appropriate data types, correcting the initial read format
+
+## Convert specified columns to numeric types as they were initially read as characters
+numeric_columns <- c("Temperature", "RH", "Ws", "Rain", "FFMC", "DMC", "DC", "ISI", "BUI", "FWI")
+final_data[numeric_columns] <- lapply(final_data[numeric_columns], as.numeric)
+```
+
+We refined categorical data to enhance the clarity and utility of the dataset for analysis and modeling.
+
+This involved several key adjustments:
+
+-   **Trimming Whitespace**: We used the `trimws` function to ensure all entries in the '*Classes*' column were consistent, removing any leading or trailing spaces. This step is crucial to prevent errors and misclassifications during data processing.
+-   **Factorization of '*Classes*'**: We converted the '*Classes*' column into a factor with defined levels ('not fire', 'fire'). This not only clarifies the categorical nature of this variable but also establishes 'not fire' as the baseline category, which is important for the interpretability of statistical models.
+-   **Creation of '*ClassesN*'**: To accommodate statistical methods and machine learning models that require numeric inputs, we created a numeric version of the '*Classes*' column ('*ClassesN*'). This provides a straightforward numeric encoding (0 for 'not fire', 1 for 'fire'), facilitating model compatibility and simplification.
+-   **Location Factorization**: We factorized the '*Location*' column with 'Cordillera' as the reference category to ensure that our analyses could accurately reflect differences between the two geographic areas, 'Cordillera' and 'Hudson Bay'. This standardization is vital for any models that assess the impact of location on fire occurrences, ensuring consistent and comparable results across different regions.
+
+```{R, message=F, warning=F}
+# Clean up and factorize the 'Classes' column
+# Trim whitespace and set 'not fire' as the first level for a consistent reference in models
+final_data$Classes <- factor(trimws(final_data$Classes), levels = c("not fire", "fire"))
+# Create a numeric version of the 'Classes' column for models that require numeric input
+final_data$ClassesN <- ifelse(final_data$Classes == "fire", 1, 0)
+
+# Factorize the 'Location' column with 'Cordillera' as the reference category
+final_data$Location <- factor(final_data$Location, levels = c("Cordillera", "Hudson Bay"))
+
+```
+
+#### Step 3: Handling missing values
+
+Handling missing values is crucial because they can distort statistical analyses and lead to misleading conclusions.
+
+First, we identify if there are any missing values in our dataset and determine their extent. This helps us decide the appropriate action to take based on how significantly the missing data might affect our dataset.
+
+```{R, message=F, warning=F}
+
+# Count the number of rows with at least one missing value
+num_rows_with_missing <- sum(apply(final_data, 1, function(x) any(is.na(x))))
+
+# Calculate the total number of rows in the data frame
+total_rows <- nrow(final_data)
+
+# Calculate the percentage of rows with missing values
+percentage_with_missing <- (num_rows_with_missing / total_rows) * 100
+
+# Print the number of rows with missing values and the percentage
+cat("Number of rows with missing values:", num_rows_with_missing, "\n")
+cat("Percentage of rows with missing values:", sprintf("%.2f%%", percentage_with_missing), "\n")
+
+```
+
+Given that there is only one missing entry out of 244 (0.41%), we have decided to omit this row. The impact of removing such a small fraction is minimal, and it simplifies our dataset preparation. Addressing this single case with more complex imputation methods would not be cost-effective and could potentially introduce bias, making it more pragmatic to exclude it from our analysis.
+
+```{R, message=F, warning=F}
+# Remove rows that contain any missing values to prepare clean dataset for analysis
+final_data <- na.omit(final_data)
+```
+
+Now, we will reexamine the structure and summary statistics of the cleaned dataset to ensure its readiness for further analysis.
+
+```{R, message=F, warning=F}
+# Display the structure and summary of the cleaned data
+str(final_data)
+summary(final_data)
+
+```
+
+#### Step 4: Additional Adjustments
+
+As we transition to exploratory data analysis, we've implemented several preprocessing adjustments to refine our dataset:
+-   **Removal of the '*Year*' Column**: The '*year*' column was removed from `final_data` as it contains the same value (2012) across all entries, offering no variability or predictive value for our analyses. Though removed, this column is still accessible in the original fire_data for reference if needed in the future.
+-   **Month Categorization**: The '*month*' column was transformed into a categorical variable. This acknowledges each month's distinct impact as a separate category.
+-   **Day Categorization**: We recognized that using raw day numbers (1-31) might not effectively capture trends in fire occurrences. Thus, we categorized days into 'Early' (1-10), 'Mid' (11-20), and 'Late' (21-31) to better delineate patterns across the month. This structured approach replaces the original '`day`' with '`day_group`', which offers a more analytically useful segmentation.
+
+While the '*year*' and original '*day*' columns have been removed from `final_data` for a streamlined analysis, they remain available in `fire_data`. This ensures that we retain the ability to reference the complete dataset as needed, preserving the integrity and full scope of the original data for any future requirements or checks.
+
+```{R message=FALSE, warning=FALSE}
+
+colnames(final_data)
+
+# Remove 'year' as it does not vary (year = 2012 across all the data)
+final_data <- dplyr::select(final_data, -year)
+
+# Convert 'month' to a factor since it might contain seasonal effects
+final_data$month <- factor(final_data$month)
+
+# Group 'day' into categories
+final_data$day_group <- cut(as.numeric(final_data$day),
+                      breaks = c(0, 10, 20, 31),
+                      labels = c("Early", "Mid", "Late"))
+final_data$day_group <- factor(final_data$day_group)
+
+# Now you can drop the original 'day' if the new grouping is preferred
+final_data <- dplyr::select(final_data, -day)
+
+# Display the structure and summary of the cleaned data
+str(final_data)
+summary(final_data)
+```
+
+These steps ensure that our dataset is optimally prepared for the next phase of our project, where we will dive deeper into exploratory data analysis to uncover patterns and insights.
+
+## Exploratory Data Analysis
+
+### Plots to visualize features
+We will explore each feature and its effect graphically.
+```{R, message=F, warning=F}
+## Visualizing numerical features
+
+# Loop through each column and create plots
+for (feature in numeric_columns) {
+  # Combined Histogram and Density Plot
+  p <- ggplot(final_data, aes(x = .data[[feature]], fill = Classes)) +  # Map Classes to fill color
+    geom_histogram(aes(y = after_stat(density)), binwidth = 1, color = "black", alpha = 0.5) +
+    geom_density(alpha = 0.3) +  # Density plot with transparent fill
+    scale_fill_manual(values = c("fire" = "red", "not fire" = "skyblue")) +  # Manually set colors for Classes
+    labs(title = paste("Histogram and Density Plot of", feature),
+         x = feature,
+         y = "Density") +
+    theme_minimal() +
+    theme(plot.title = element_text(hjust = 0.5))  # Center the title
+  
+  # Print the plot
+  print(p)
+}
+```
+
+The histogram and density plots reveal the relationships between various features and fire occurrence. *Temperature* shows that higher values (35°C and above) are strongly associated with fire, while lower temperatures correspond to non-fire instances. *RH* (Relative Humidity) inversely affects fire likelihood, with fires more common at lower humidity levels (below 50%). *Ws* has a moderate impact, with fires occurring more frequently at wind speeds around 10 to 15. *Rain* has a minimal effect, as most fires occur when rainfall is near zero. *FFMC*  and *DMC* are crucial indicators, with higher values correlating strongly with fire, reflecting drier fuel and organic layers. Similarly, *DC* and *BUI* are significant; fires are more likely when these indices are high, indicating prolonged dryness and increased fuel accumulation. *ISI* and *FWI* are also critical, with higher values indicating faster fire spread and greater fire risk.
+
+In conclusion, features like *FFMC*, *DMC*, *DC*, *BUI*, *ISI*, and *FWI* are the most important for distinguishing fire and non-fire instances due to their strong association with dry and combustible conditions. *Rain*, *Ws*, and *RH* are moderately important, while *Temperature*, though impactful, is less distinctive in isolation. This analysis highlights the critical role of dryness and fire indices in predicting fire occurrences.
+
+### Box Plots
+
+```{R, message=F, warning=F}
+# Boxplot for all numeric columns
+final_data_long <- tidyr::pivot_longer(final_data, cols = numeric_columns, names_to = "Feature", values_to = "Value")
+
+ggplot(final_data_long, aes(x = Feature, y = Value, fill = Feature)) +
+  geom_boxplot(outlier.color = "red", outlier.size = 2) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Boxplots of Numerical Features", x = "Feature", y = "Value")
+```
+
+A boxplot is created for each feature using geom_boxplot. It visualizes the distributions of various numerical features from the dataset.
+The boxplots reveals significant variability in the value ranges across features in the dataset. *DC* stands out with the widest range, exceeding 200, while features like *Temperature*, *RH*, and *FFMC* exhibit much smaller ranges. 
+Outliers, marked in red, are present in most features, with *DC* and *BUI* showing a notable number of extreme values, whereas *Rain* displays a skewed distribution concentrated near zero with a few higher values. 
+Compact distributions are observed in features such as *FFMC*, *FWI*, and *ISI*, indicating less variability. 
+Therefore, the observed variability and the presence of outliers suggest that normalization may be necessary to address scaling issues for certain machine learning models. Additionally, the high variability in features like *DC* and *BUI* hints at their potential importance in understanding patterns within the data.
+
+
+### Pairs Plot
+
+```{R, message=F, warning=F}
+
+ggpairs(
+  final_data,
+  columns = numeric_columns,  # Specify numeric columns
+  aes(color = Classes),  
+  upper = list(
+    continuous = wrap("cor", size = 2, align_percent = 0.5) # Text size for correlation labels
+  ),
+  lower = list(
+    continuous = wrap("points", size = 0.75, alpha = 0.7)  # Scatter points size and transparency
+  ),
+  diag = list(
+    continuous = wrap("densityDiag", alpha = 0.6)          # Adjust density plot transparency
+  ),
+  progress = FALSE                                          # Suppress progress bar
+)
+
+
+```
+
+This pairs plot visualizes the relationships between the various numerical features in the dataset. Each scatterplot in the grid shows pairwise relationships between two features, while the diagonal plots display distributions for individual features. The red and blue points correspond to two groups (not fire and fire, respectively).
+*Temperature* shows a strong negative correlation with *RH* (-0.65) and a positive correlation with fire indices like *FFMC* (0.677), *ISI* (0.804), and *FWI* (0.888), suggesting that higher temperatures contribute to drier conditions and increased fire spread potential.
+Conversely, *Rain* has a negative relationship with fire indices, particularly *FFMC* (-0.544) and *DMC* (-0.423), indicating its role in reducing fuel dryness. 
+Wind Speed (*Ws*) positively correlates with *ISI* (0.507) and *FWI*, showing its influence on fire spread. 
+Fuel moisture codes, such as *FFMC*, *DMC*, and *DC*, exhibit strong positive relationships with fire indices like *ISI*, *BUI*, and *FWI*, which collectively measure fire danger and behavior.
+We can conclude that, in fire-prone conditions, high temperature, low RH, low Rain, and strong winds align with elevated fire weather indices. These patterns reveal that temperature, humidity, wind speed, and fuel moisture are critical drivers of fire occurrence and severity.
+
+
+### Correlation matrix
+```{R message=FALSE, warning=FALSE}
+# Subset the data to include only the numeric columns and ClassesN
+correlation_data <- final_data[, c(numeric_columns)]
+
+# Compute the correlation matrix
+correlation_matrix <- cor(correlation_data, use = "complete.obs")
+
+# Display the correlation matrix
+print(correlation_matrix)
+
+# Plot the correlation matrix using corrplot
+corrplot(correlation_matrix, method = "color", type = "upper", 
+         tl.col = "black", tl.srt = 45, 
+         addCoef.col = "black", number.cex = 0.6,
+         title = "Correlation Matrix", mar = c(0, 0, 1, 0))
+```
+
+The correlation matrix complements the insights derived from the earlier pairs plot, quantifying the strength of relationships between features.
+The fire indices *FFMC*, *DMC*, *DC*, *ISI*, *BUI*, and *FWI* are highly interrelated, with correlations exceeding 0.70 in several cases. This reflects their combined importance in assessing fire danger, as these indices measure various aspects of fire behavior, fuel moisture, and spread potential. Additionally, the ClassesN variable (representing fire occurrence) shows a strong positive correlation with *FFMC* (0.77), *ISI* (0.74), and *FWI* (0.72), validating the earlier observation that fire-prone conditions are characterized by high *FFMC*, *ISI*, and *FWI* values.
+
+## Data Preprocessing
+
+### Find the outliers in all features
+
+```{R, message=F, warning=F}
+# Define numeric columns 
+n_columns <- c("Temperature", "Rain", "RH", "Ws", "FFMC", "DMC", "DC", "ISI", "BUI", "FWI")
+
+# Function to find outliers using the IQR (INterquartile Range) method
+find_outliers <- function(column) {
+  Q1 <- quantile(column, 0.25)
+  Q3 <- quantile(column, 0.75)
+  IQR <- Q3 - Q1
+  lower_bound <- Q1 - 1.5 * IQR
+  upper_bound <- Q3 + 1.5 * IQR
+  # Identify outliers that fall below the lower bound or above the upper bound
+  outliers <- column[column < lower_bound | column > upper_bound]
+  # If no outliers, return 0
+  if (length(outliers) == 0) {
+    return(0)
+  } else {
+    #Return a list containing the outliers and the bounds
+    return(list(outliers = outliers, lower = lower_bound, upper = upper_bound))
+  }
+}
+
+# Apply to numeric columns and print the results
+for (col in numeric_columns) {
+  outlier_info <- find_outliers(final_data[[col]])
+  cat("\nThe outliers in", col, "are:\n")
+  if (is.list(outlier_info)) {
+    print(outlier_info$outliers)  # Print the outliers if a list is returned
+  } else {
+    print(outlier_info)  # Print 0 when no outliers are found
+  }
+}
+```
+
+The code identifies outliers in specified numeric features using the Interquartile Range (IQR) method. For each feature, the lower and upper bounds are calculated as Q1−1.5×IQR and Q3+1.5×IQR, respectively, and any data point outside this range is considered an outlier. The output lists outliers for each feature, highlighting features such as *Temperature*, *Ws*, *Rain*, *DMC*, and *DC*, which contain multiple outliers. These identified outliers could significantly impact the model's performance if not handled appropriately, making this a critical preprocessing step.
+
+### Perform Shapiro-Wilk test
+
+```{R, message=F, warning=F}
+
+numeric_columns <- c("Temperature", "Rain", "FFMC", "DMC", "DC", "ISI", "BUI", "FWI")
+for (col in numeric_columns) {
+  shapiroWilk_test <- shapiro.test(final_data[[col]])
+  cat("The Shapiro-Wilk Test for", col, ":\n")
+  print(shapiroWilk_test)
+}
+
+
+```
+
+The Shapiro-Wilk test determines if features are normally distributed. For all the features, the p-value is \< 0.05 which indicates non-normality for all numeric columns. Since none of the features passed the normality test, it’s safer to proceed with normalization rather than standardization.
+
+### Feature Selection using Random Forests
+
+To optimize our machine learning models and enhance their predictive accuracy, we'll be employing a Random Forest algorithm to perform feature selection. Random Forests are particularly effective for this purpose because they provide a built-in mechanism for ranking the importance of features based on how well they improve the model's performance.
+
+By focusing on the most impactful features, we can streamline our model, reduce overfitting, and potentially enhance computational efficiency.
+
+```{R, message=F, warning=F}
+
+# Train the Random Forest model
+model <- randomForest(Classes ~ .-ClassesN, data = final_data, importance = TRUE)
+
+# Get feature importance
+importance <- importance(model)
+print(importance)
+
+# Visualize feature importance
+varImpPlot(model)
+
+```
+
+The feature importance analysis of the Random Forest model reveals that *ISI* (Initial Spread Index) and *FFMC* (Fine Fuel Moisture Code) are the most influential features, significantly impacting both the model's accuracy (Mean Decrease Accuracy) and its ability to split the data effectively (Mean Decrease Gini). Features like *FWI* (Fire Weather Index), *DC* (Drought Code), and *DMC* (Duff Moisture Code) also contribute meaningfully to the model's performance. On the other hand, features such as *Location*, *Ws* (Wind Speed), and *day_group* demonstrate minimal importance, showing little effect on the model's predictive accuracy or splitting ability. This emphasizes the importance of fire-related indices in the dataset for accurately predicting the target variable.
+
+### Feature Selection using Recursive Feature Elimination
+
+After identifying key predictors through initial feature importance analysis, we proceeded to validate and refine our feature selection using Recursive Feature Elimination (RFE). This technique is particularly effective for pinpointing the most predictive features within a dataset, ensuring our model focuses on the most impactful variables.
+
+**Implementation of RFE**
+
+Using the `caret` package's RFE functionality, we configured the process to utilize cross-validation, specifically a 10-fold cross-validation, to evaluate the performance decrement when excluding each feature. This method helps in robustly determining the feature set that maximizes predictive accuracy by iteratively removing less important features and re-evaluating the model.
+
+```{R message=FALSE, warning=FALSE}
+control <- rfeControl(functions = rfFuncs, method = "cv", number = 10)
+rfe_results <- rfe(final_data[, -which(names(final_data) == "Classes" | names(final_data) == "ClassesN")],
+                   final_data$Classes,
+                   sizes = c(1:ncol(final_data)-1),
+                   rfeControl = control)
+print(rfe_results)
+
+# Retrieve the subset of features that gave the best performance
+optimal_features <- predictors(rfe_results)
+print(optimal_features)
+
+
+```
+
+The Recursive Feature Elimination (RFE) process validated *ISI* (Initial Spread Index) and *FFMC* (Fine Fuel Moisture Code) as the most impactful features for predicting fire events. This finding aligns with our earlier analysis using random forest feature importance, highlighting the consistency in feature significance across different methodologies.
+
+# Model Development
+
+## Spliting the dataset
+
+The dataset was split into: Training set with 70% of the data. Testing set with 30% of the data.
+
+```{R, message=F, warning=F}
+# Set a seed for reproducibility
+set.seed(101)
+
+# Assuming your dataset is named 'data'
+# Step 1: Split 70% for training and 30% for testing
+split <- sample.split(final_data$Classes, SplitRatio = 0.7)
+train <- subset(final_data, split == TRUE)
+test <- subset(final_data, split == FALSE)
+
+```
+
+To address the issue of outliers in our dataset, we evaluated two potential strategies:
+
+1.  **Removing Outliers**: This approach involves identifying and excluding extreme values from the dataset. However, given the relatively small size of our dataset, removing outliers could result in a significant loss of data, potentially skewing the results and reducing the statistical power of subsequent analyses. Therefore, we decided against this method.
+2.  **Winsorization**: Instead, we opted for Winsorization, a method that limits extreme values in the dataset without deleting any data points. This technique modifies the outliers by replacing them with the nearest values at the specified percentiles, in this case, the 5th and 95th percentiles. Winsorization is promising because it retains all data points while reducing the influence of outliers, making it particularly suitable for our dataset size and the potential impact of extreme values.
+
+Given these considerations, we proceeded to apply Winsorization to the training set first, to assess its effectiveness before potentially applying it to other parts of the dataset.
+
+```{R message=FALSE, warning=FALSE}
+# Winsorize numeric columns in the training data
+# Applying Winsorization at the 5th and 95th percentiles
+train_winsorized <- train
+
+# Apply Winsorization to each numeric column using the correct 'range' argument
+train_winsorized[numeric_columns] <- lapply(train_winsorized[numeric_columns], function(x) {
+  Winsorize(x, val = quantile(x, probs = c(0.05, 0.95), na.rm = FALSE))
+})
+
+# Check the effect of Winsorization
+summary(train_winsorized)
+
+```
+
+## Normalization of Training and Testing Sets
+
+Normalization is a critical preprocessing step in data analysis, particularly when preparing data for machine learning models. By normalizing the data, we ensure that each feature contributes equally to the analysis, preventing variables with larger scales from disproportionately influencing the model's behavior. This step involves adjusting the scale of the data so that different measurements are directly comparable and model training is stable and faster.
+
+In this process, we first normalize the training set, establishing a reference scale based on its distribution. We then apply the same scaling factors to the test set. This approach ensures that both datasets are on the same scale, maintaining consistency in how models interpret the features across both training and testing phases. Using the training set statistics (minimum and maximum values) for normalizing the test set prevents information leakage and ensures that our model evaluations are realistic and unbiased.
+
+This methodology not only aligns with best practices in data preparation but also enhances the predictive performance and interpretability of the models developed from this data.
+
+```{R, message=F, warning=F}
+# Define a normalization function
+normalize <- function(column) {
+  # The normalization equation:
+  # x' = (x - min(x)) / (max(x) - min(x))
+  return((column - min(column)) / (max(column) - min(column)))
+}
+
+# Normalize the training set
+train_normalized <- train
+numeric_columns <- names(train)[sapply(train, is.numeric)]  # Identify numeric columns dynamically
+train_normalized[numeric_columns] <- lapply(train_normalized[numeric_columns], normalize)
+
+# Store min and max for each numeric column from the training set
+min_values <- sapply(train [numeric_columns], min)
+max_values <- sapply(train [numeric_columns], max)
+
+# Function to normalize using train stats
+normalize_using_train_stats <- function(column, min_val, max_val) {
+  (column - min_val) / (max_val - min_val)
+}
+
+# Normalize the test set using training set statistics
+test_normalized <- test
+test_normalized[numeric_columns] <- Map(normalize_using_train_stats, 
+                                        test[numeric_columns], 
+                                        min_values, 
+                                        max_values)
+
+# View the normalized data
+head(train_normalized)
+head(test_normalized)
+```
+
+To evaluate the effectiveness of Winsorization alongside our standard preprocessing, we will also normalize the Winsorized data, ensuring it is suitably scaled for subsequent analysis.
+
+```{R, message=F, warning=F}
+
+# Normalize the winsorized training set
+train_normalized_w <- train_winsorized 
+numeric_columns <- names(train)[sapply(train, is.numeric)]  # Identify numeric columns dynamically
+train_normalized_w[numeric_columns] <- lapply(train_normalized_w[numeric_columns], normalize)
+
+# Store min and max for each numeric column from the training set
+min_values_w <- sapply(train_winsorized [numeric_columns], min)
+max_values_w <- sapply(train_winsorized [numeric_columns], max)
+
+# Normalize the test set using training set statistics
+test_normalized_w <- test
+test_normalized_w[numeric_columns] <- Map(normalize_using_train_stats, 
+                                        test[numeric_columns], 
+                                        min_values_w, 
+                                        max_values_w)
+
+# View the winsorised normalized data
+head(train_normalized_w)
+head(test_normalized_w)
+```
+
+## Logistic Regression
+
+```{R, message=F, warning=F}
+# Train logistic regression model on the training set
+logistic_model <- glm(Classes ~ .-ClassesN -Location -month -day_group -Ws, data = train_normalized, family = binomial())
+
+# Summarize the model
+summary(logistic_model)
+```
+
+The logistic regression model summary reveals extremely large coefficients with very high standard errors and statistically insignificant p-values (close to 1) across all predictor variables. These outcomes suggest that the model may be suffering from multicollinearity, poor scaling, or overfitting issues.
+
+**Analysis of Logistic Regression Output**:
+
+-   **Coefficients**: The extreme values in the coefficients suggest that the model may be highly sensitive to slight changes in the input data. Such high coefficients typically indicate issues with the data scale or variance inflation due to correlated predictors.
+-   **Standard Errors**: The large standard errors reflect instability in the estimation of coefficients, which can result from multicollinearity among predictors or outliers in the data affecting the regression line fit.
+-   **Z-values and P-values**: The near-zero z-values and high p-values (close to 1) for all predictors indicate that none of the coefficients are statistically significant at conventional levels, implying that we fail to reject the null hypothesis for each predictor. This could mean that the predictors do not have a significant impact on the model or the model is not well specified.
+-   **Deviance**: The residual deviance close to zero suggests that the model fits the data almost perfectly, which could be a sign of overfitting, especially when paired with an extremely high number of Fisher Scoring iterations (25 in this case).
+
+
+```{R, message=F, warning=F}
+# Initialize 'models' as a data frame to store the actual classes and their numeric representations from the test set
+# This setup allows us to systematically store and access various model outputs such as predicted probabilities and class labels.
+models <- data.frame(
+  Classes = test_normalized$Classes,   # Actual classes from the test set
+  ClassesN = test_normalized$ClassesN  # Numeric representations of the classes
+)
+# We will append model predictions and other metrics to this data frame to keep results organized and easily accessible.
+
+
+# Predict probabilities on the test set
+models$LR_predicted_prob <- predict(logistic_model, newdata = test_normalized, type = "response")
+
+# Convert probabilities to binary class prediction based on a threshold (default 0.5)
+models$LR_predicted_class <- ifelse(models$LR_predicted_prob > 0.5, "fire", "not fire")
+models$LR_predicted_class <- factor(models$LR_predicted_class, levels = c("not fire", "fire"))
+# Confusion matrix to see the accuracy of the model
+conf_matrix_LR <- confusionMatrix(factor(models$LR_predicted_class), factor(models$Classes))
+
+# Print the confusion matrix
+print(conf_matrix_LR)
+
+# Print overall model accuracy from the confusion matrix
+print(paste("Accuracy:", conf_matrix_LR$overall['Accuracy']))
+
+```
+**Model Fit and Predictive Performance**:
+
+-   **Confusion Matrix**: Despite the theoretical concerns, the model achieves a high accuracy of 91.78% on the training data with a 95% confidence interval of (0.8296, 0.9692), and a Kappa statistic of 0.8331, indicating a very good agreement beyond chance.
+
+```{R, message=F, warning=F}
+
+# ROC curve for the test set
+roc_result <- roc(response = test_normalized$Classes, predictor = as.numeric(models$LR_predicted_class))
+
+# Compute AUC for the logistic regression
+logistic_auc <- auc(roc_result)
+
+# Plot ROC curve
+plot(roc_result, main = "ROC Curve for Logistic Regression",col = "blue", lwd = 2)
+legend("bottomright", legend = paste("AUC =", round(logistic_auc, 3)), col = "blue", lwd = 2)
+
+```
+
+  -   **AUC**: The Area Under the Curve (AUC) of 0.917 also indicates excellent model performance.
+
+```{R message=FALSE, warning=FALSE}
+# Initialize a data frame to store performance metrics
+performance_metrics <- data.frame(
+  Sensitivity = numeric(),
+  Specificity = numeric(),
+  Pos_Predictive_Value = numeric(),
+  Neg_Predictive_Value = numeric(),
+  Prevalence = numeric(),
+  Detection_Rate = numeric(),
+  Detection_Prevalence = numeric(),
+  Balanced_Accuracy = numeric(),
+  AUC = numeric(),
+  row.names = character(),
+  stringsAsFactors = FALSE
+)
+
+# Extract metrics from confusion matrix
+logistic_metrics <- conf_matrix_LR$byClass
+
+# Append logistic regression results to the performance metrics table
+performance_metrics["Logistic Regression", ] <- c(
+  Sensitivity = logistic_metrics['Sensitivity'],
+  Specificity = logistic_metrics['Specificity'],
+  Positive_Predictive_Value = logistic_metrics['Pos Pred Value'],
+  Negative_Predictive_Value = logistic_metrics['Neg Pred Value'],
+  Prevalence = mean(test_normalized$Classes == "fire"),
+  Detection_Rate = logistic_metrics['Detection Rate'],
+  Detection_Prevalence = logistic_metrics['Detection Prevalence'],
+  Balanced_Accuracy = logistic_metrics['Balanced Accuracy'],
+  AUC = logistic_auc
+)
+
+
+```
+
+### LR with Optimal Features
+
+After observing suboptimal performance with a broader set of features in the logistic regression model, we refine our approach by focusing on the two features previously identified as most impactful: *ISI* (Initial Spread Index) and *FFMC* (Fine Fuel Moisture Code). This targeted approach aims to enhance model accuracy and interpretability by utilizing only the key predictors validated through feature selection techniques.
+
+```{R, message=F, warning=F}
+# Train logistic regression model on the training set
+logistic_model <- glm(Classes ~ ISI + FFMC, data = train_normalized, family = binomial())
+
+# Summarize the model
+summary(logistic_model)
+```
+
+```{R, message=F, warning=F}
+# Predict probabilities on the test set
+models$LR_predicted_prob_opt <- predict(logistic_model, newdata = test_normalized, type = "response")
+
+# Convert probabilities to binary class prediction based on a threshold (default 0.5)
+models$LR_predicted_class_opt <- ifelse(models$LR_predicted_prob_opt > 0.5, "fire", "not fire")
+models$LR_predicted_class_opt <- factor(models$LR_predicted_class_opt, levels = c("not fire", "fire"))
+# Confusion matrix to see the accuracy of the model
+conf_matrix <- confusionMatrix(factor(models$LR_predicted_class_opt), factor(models$Classes))
+
+# Print the confusion matrix
+print(conf_matrix)
+
+# Print overall model accuracy from the confusion matrix
+print(paste("Accuracy:", conf_matrix$overall['Accuracy']))
+
+```
+
+```{R, message=F, warning=F}
+
+# ROC curve for the test set
+roc_result <- roc(response = test_normalized$Classes, predictor = as.numeric(models$LR_predicted_class_opt))
+
+# Plot ROC curve
+plot(roc_result, main = "ROC Curve for Logistic Regression",col = "red", lwd = 2)
+legend("bottomright", legend = paste("AUC =", round(auc(roc_result), 3)), col = "red", lwd = 2)
+
+```
+
+The refined logistic regression model using *ISI* and *FFMC* as predictors demonstrates excellent predictive performance:
+
+-   **Coefficients**: The model indicates that both *ISI* (p=0.0634) and *FFMC* (p=0.6686) contribute to predictions, with *ISI* showing a stronger and near-significant influence on the likelihood of fire occurrences.
+-   **Fit and Accuracy**: The model achieves a high accuracy of 98.63%, with a residual deviance significantly lower than the null deviance, showcasing its effective fit to the data.
+-   **Statistical Measures**:
+  -   **AIC**: The low Akaike Information Criterion (AIC) score suggests a good fit relative to the number of predictors.
+  -   **Kappa**: A Kappa statistic of 0.9723 indicates almost perfect agreement.
+  -   **AUC**: An AUC of 0.988 confirms the model’s superior ability to discriminate between the presence and absence of fire.
+  
+### LR with Winsorization
+
+Now, we are going to evaluate the performance of our logistic regression model using winsorized data with the optimal features, *ISI* and *FFMC*.
+
+```{R, message=F, warning=F}
+# Train logistic regression model on the training set
+logistic_model <- glm(Classes ~ ISI + FFMC, data = train_normalized_w, family = binomial())
+
+# Summarize the model
+summary(logistic_model)
+```
+
+```{R, message=F, warning=F}
+# Predict probabilities on the test set
+models$LR_predicted_prob_w <- predict(logistic_model, newdata = test_normalized, type = "response")
+
+# Convert probabilities to binary class prediction based on a threshold (default 0.5)
+models$LR_predicted_class_w <- ifelse(models$LR_predicted_prob_w > 0.5, "fire", "not fire")
+models$LR_predicted_class_w <- factor(models$LR_predicted_class_w, levels = c("not fire", "fire"))
+# Confusion matrix to see the accuracy of the model
+conf_matrix <- confusionMatrix(factor(models$LR_predicted_class_w), factor(models$Classes))
+
+# Print the confusion matrix
+print(conf_matrix)
+
+# Print overall model accuracy from the confusion matrix
+print(paste("Accuracy:", conf_matrix$overall['Accuracy']))
+
+```
+
+```{R, message=F, warning=F}
+
+# ROC curve for the test set
+roc_result <- roc(response = test_normalized$Classes, predictor = as.numeric(models$LR_predicted_class_w))
+
+# Plot ROC curve
+plot(roc_result, main = "ROC Curve for Logistic Regression",col = "darkgreen", lwd = 2)
+legend("bottomright", legend = paste("AUC =", round(auc(roc_result), 3)), col = "darkgreen", lwd = 2)
+
+```
+
+This logistic regression model offers a different perspective on the robustness of our predictive approach:
+
+-   **Model Coefficients**: The model's intercept and coefficients for *ISI* and *FFMC* have changed slightly compared to the non-winsorized data. The intercept has shifted to -26.46 from -34.92, and the coefficients for *ISI* and *FFMC* have decreased, reflecting the impact of limiting extreme values on the model's parameter estimates.
+-   **Comparative Performance**: Despite these adjustments, the model shows a decline in performance metrics compared to the non-winsorized version. The accuracy has decreased from 98.63% to 93.15%, and the AUC has slightly dropped from 0.988 to 0.939. These changes suggest that winsorization may not be beneficial for this dataset in enhancing model accuracy.
+
+Further testing of winsorization across other models consistently resulted in similar or reduced effectiveness. Based on these outcomes, we have opted not to use winsorization as a preprocessing method for our analysis. The presence of outliers appears to be less detrimental than the effects of limiting data variability through winsorization.
+
+
+> In subsequent modeling efforts, we broadened our feature selection beyond just *ISI* and *FFMC*, the two features previously identified as the most influential. This decision was driven by a desire to avoid overly reducing our feature set, particularly given the relatively small size of our dataset.
+
+> To determine the most relevant features for inclusion, we revisited insights from the Random Forest importance measures, Recursive Feature Elimination (RFE) results, and the patterns observed during Exploratory Data Analysis (EDA). From this comprehensive review, we chose to include the following features in our models: *Temperature*, *RH*, *Rain*, *FFMC*, *DMC*, *DC*, *ISI*, *BUI*, and *FWI*. This selection was made despite a slight increase in performance metrics observed when using only *ISI* and *FFMC*. Features like *ClassesN*, *Location*, *day_group*, *month*, and *Ws* were excluded based on their lower significance and impact in predictive modeling as indicated by our preliminary analyses.
+
+> This approach allows us to maintain a robust set of predictors that are substantiated by multiple analytical methods, ensuring a well-rounded and scientifically grounded model development process.
+
+## LDA
+
+```{R, message=F, warning=F}
+
+# Apply LDA to the training data
+lda_model <- lda(Classes ~ .-ClassesN -Location -day_group -month -Ws, data = train_normalized)
+
+# Summary of the model
+summary(lda_model)
+
+# Plotting the LDA model
+plot(lda_model)
+
+# Predicting on the test set
+lda_predictions <- predict(lda_model, newdata = test_normalized)
+
+# Accessing the class predictions
+models$lda_predicted_class <- lda_predictions$class
+
+# Confusion Matrix to evaluate the model
+conf_matrix_LDA <- confusionMatrix(data = models$lda_predicted_class, reference = test_normalized$Classes)
+
+print(conf_matrix_LDA)
+
+```
+
+The LDA model applied to predict fire occurrences achieved an accuracy of 89.04% with a 95% confidence interval of (0.7954, 0.9515),and a Kappa statistic of 0.7805, indicating good agreement beyond chance. It effectively balanced sensitivity (93.75%) and specificity (85.37%), resulting in a balanced accuracy of 89.56%. The model's positive predictive value of 83.33% and negative predictive value of 94.59% demonstrate its reliability in classifying both 'fire' and 'not fire' scenarios.
+
+The discriminant score histograms for the 'not fire' and 'fire' groups show clear differentiation between the classes, though some overlap explains the few misclassifications observed. This slight overlap resulted in six 'fire' cases predicted as 'not fire' and two 'not fire' cases as 'fire'.
+
+```{R, message=F, warning=F}
+
+# ROC curve for the test set
+roc_result <- roc(response = test_normalized$Classes, predictor = as.numeric(models$lda_predicted_class))
+
+lda_auc <- auc(roc_result)
+
+# Plot ROC curve
+plot(roc_result, main = "ROC Curve for Logistic Regression",col = "red", lwd = 2)
+legend("bottomright", legend = paste("AUC =", round(lda_auc, 3)), col = "red", lwd = 2)
+
+
+```
+
+The Linear Discriminant Analysis model yielded an AUC of 0.896, signifying strong capability in distinguishing between the classes 'fire' and 'not fire' across various threshold settings. While this indicates excellent predictive accuracy, there is still potential for improvement to achieve even higher performance.
+
+
+```{R message=FALSE, warning=FALSE}
+lda_metrics <- conf_matrix_LDA$byClass
+
+# Append LDA results to the performance metrics table
+performance_metrics["Linear Discriminant Analysis", ] <-c(
+  Sensitivity = lda_metrics['Sensitivity'],
+  Specificity = lda_metrics['Specificity'],
+  Positive_Predictive_Value = lda_metrics['Pos Pred Value'],
+  Negative_Predictive_Value = lda_metrics['Neg Pred Value'],
+  Prevalence = mean(test_normalized$Classes == "fire"),
+  Detection_Rate = lda_metrics['Detection Rate'],
+  Detection_Prevalence = lda_metrics['Detection Prevalence'],
+  Balanced_Accuracy = lda_metrics['Balanced Accuracy'],
+  AUC = lda_auc
+)
+
+```
+
+
+## QDA
+
+```{R, message=F, warning=F}
+
+# Apply QDA to the training data
+qda_model <- qda(Classes ~ .-ClassesN -Location -day_group -month -Ws, data = train_normalized)
+
+# Summary of the model
+summary(qda_model)
+
+# Predicting on the test set
+qda_predictions <- predict(qda_model, newdata = test_normalized)
+
+# Accessing the class predictions
+models$qda_predicted_class <- qda_predictions$class
+
+# Confusion Matrix to evaluate the model
+conf_matrix_QDA <- confusionMatrix(data = models$qda_predicted_class, reference = test_normalized$Classes)
+
+print(conf_matrix_QDA)
+
+```
+
+In the analysis using Quadratic Discriminant Analysis (QDA), the model achieved an impressive accuracy of 97.26%, with a perfect specificity of 100% for the 'fire' class and a high sensitivity of 93.75% for the 'not fire' class. This high level of specificity indicates no false positives were predicted for 'fire', demonstrating the model's precision.
+
+The confusion matrix further illustrates the model's robust predictive power, successfully identifying all 'fire' cases without error and accurately classifying 'not fire' instances with a positive predictive value of 100%. The negative predictive value stood at 95.35%, affirming the model's reliability. Additionally, the balanced accuracy was calculated at 96.88%, and the Kappa statistic was 0.944, indicating almost perfect agreement beyond chance between the model's predictions and the actual class labels.
+
+```{R, message=F, warning=F}
+# ROC curve for the QDA test set predictions
+roc_result_qda <- roc(response = test_normalized$Classes, predictor = as.numeric(models$qda_predicted_class == "fire"))
+
+qda_auc <- auc(roc_result_qda)
+
+# Plot ROC curve for QDA
+plot(roc_result_qda, main = "ROC Curve for QDA",col = "skyblue", lwd = 2)
+legend("bottomright", legend = paste("AUC =", round(qda_auc, 3)), col = "skyblue", lwd = 2)
+
+```
+
+Furthermore, the model's Area Under the Curve (AUC) of 0.969 indicates excellent capability in discriminating between the classes across all thresholds. This performance slightly surpasses that of the Linear Discriminant Analysis (LDA) previously conducted, highlighting QDA's potential advantages in managing more complex relationships through its quadratic decision boundaries.
+
+```{R message=FALSE, warning=FALSE}
+qda_metrics <- conf_matrix_QDA$byClass
+
+# Append QDA results to the performance metrics table
+performance_metrics["Quadratic Discriminant Analysis", ] <- c(
+  Sensitivity = qda_metrics['Sensitivity'],
+  Specificity = qda_metrics['Specificity'],
+  Positive_Predictive_Value = qda_metrics['Pos Pred Value'],
+  Negative_Predictive_Value = qda_metrics['Neg Pred Value'],
+  Prevalence = mean(test_normalized$Classes == "fire"),
+  Detection_Rate = qda_metrics['Detection Rate'],
+  Detection_Prevalence = qda_metrics['Detection Prevalence'],
+  Balanced_Accuracy = qda_metrics['Balanced Accuracy'],
+  AUC = qda_auc
+)
+
+```
+
+## KNN
+
+```{R, message=F, warning=F}
+# Extract target variable (Classes)
+train_target <- train_normalized$Classes
+test_target <- test_normalized$Classes
+
+# Exclude both 'Classes' (target) and 'ClassesN' from features
+train_features <- train_normalized[, setdiff(colnames(train_normalized), c("Classes", "ClassesN", "Ws"))]
+test_features <- test_normalized[, setdiff(colnames(test_normalized), c("Classes", "ClassesN", "Ws"))]
+
+# Ensure features are numeric
+train_features <- train_features[, sapply(train_features, is.numeric)]
+test_features <- test_features[, sapply(test_features, is.numeric)]
+
+# Define a range of k values
+k_values <- seq(2, 30)  # Adjust as needed
+accuracy <- numeric(length(k_values))
+
+# Perform KNN for each k
+for (i in seq_along(k_values)) {
+  k <- k_values[i]
+  # Predict using KNN
+  predictions <- knn(train_features, test_features, train_target, k = k)
+  # Calculate accuracy
+  accuracy[i] <- sum(predictions == test_target) / length(test_target)
+}
+
+# Create a data frame for results
+results <- data.frame(k = k_values, Accuracy = accuracy)
+
+print(results)
+
+
+```
+
+This code evaluates the performance of the K-Nearest Neighbors (KNN) algorithm by varying the number of neighbors (k) and calculating the accuracy for each k on a test dataset. The results show that accuracy peaks at k = 3, reaching 0.9726 (97.26%), indicating this is the optimal choice for balancing model complexity and performance. At lower values of k, such as k=2, the model is more prone to overfitting, as shown by a lower accuracy (0.8904). As k increases beyond 3, the accuracy stabilizes around 91.78%, with slight fluctuations, and drops slightly at k=10 to 0.9041, likely due to underfitting. This behavior reflects the trade-off between overfitting and underfitting as k changes.
+
+```{R, message=F, warning=F}
+# Plotting accuracy for each value of k
+ggplot(results, aes(x = k, y = Accuracy)) +
+  geom_line(color = "blue") +
+  geom_point(color = "red") +
+  geom_text(aes(label = k), vjust = -0.5, size = 3) +  # Annotate k-values
+  labs(title = "KNN Accuracy for Different k Values",
+       x = "Number of Neighbors (k)",
+       y = "Accuracy") +
+  theme_minimal()
+```
+
+The plot visualizes the relationship between the number of neighbors (k) and the accuracy of the KNN model. The visual representation helps confirm that k=3 is optimal for this dataset, as it maximizes accuracy while avoiding performance degradation.
+
+```{R, message=F, warning=F}
+# Example for confusion matrix using the best k
+best_k <- k_values[which.max(accuracy)]  # Select the best k
+cat("The best value of k is:", best_k, "\n\n")
+
+models$knn_predictions <- knn(train_features, test_features, train_target, k = best_k)  # Predict using best k
+
+# Convert test target to a factor 
+test_target_factor <- factor(test_target, levels = unique(test_target))
+
+# Confusion matrix
+conf_matrix_KNN <- confusionMatrix(factor(models$knn_predictions, levels = levels(test_target_factor)), test_target_factor)
+print(conf_matrix_KNN)
+
+
+
+```
+
+The confusion matrix and associated statistics evaluate the KNN model with the best k=3. The model achieves an accuracy of 97.26% with a 95% confidence interval of (0.9045, 0.9967), indicating high reliability in its predictions. The sensitivity (true positive rate) is 97.56%, meaning the model accurately detects "fire" cases most of the time, while the specificity (true negative rate) is 96.88%, reflecting accurate identification of "not fire" cases. The high Kappa statistic (0.9444) further confirms strong agreement between predictions and actual labels. Positive and negative predictive values are also high, at 97.56% and 96.88%, respectively, showing the model's reliability in making correct classifications. The balanced accuracy, which averages sensitivity and specificity, is 97.22%, reinforcing the model's overall effectiveness.
+
+```{R, message=F, warning=F}
+# Compute probabilities for the positive class
+knn_probabilities <- knn(train_features, test_features, train_target, k = best_k, prob = TRUE)
+prob_positive <- attr(knn_probabilities, "prob")  # Get probabilities for the majority class
+
+# Adjust probabilities for binary classification
+prob_positive <- ifelse(knn_probabilities == levels(test_target_factor)[1], 1 - prob_positive, prob_positive)
+
+# Plot the ROC curve
+roc_curve <- roc(test_target_factor, prob_positive)
+# Find AUC value
+auc_KNN <- auc(roc_curve)
+
+plot(roc_curve, col = "blue", main = "ROC Curve for KNN")
+legend("bottomright", legend = paste("AUC =", round(auc_KNN, 3)), col = "red", lwd = 2)
+
+
+```
+
+The ROC curve for the KNN model shows excellent classification performance, with an AUC of 0.995, which is very close to the ideal value of 1. This indicates that the model is highly effective at distinguishing between positive and negative classes, with minimal overlap or misclassification. The steep rise of the curve towards the top-left corner reflects high sensitivity (true positive rate - TPR) and specificity (true negative rate) across varying thresholds.
+
+
+```{R message=FALSE, warning=FALSE}
+KNN_metrics <- conf_matrix_KNN$byClass
+
+# Append KNN results to the performance metrics table
+performance_metrics["KNN", ] <- c(
+  Sensitivity = KNN_metrics['Sensitivity'],
+  Specificity = KNN_metrics['Specificity'],
+  Positive_Predictive_Value = KNN_metrics['Pos Pred Value'],
+  Negative_Predictive_Value = KNN_metrics['Neg Pred Value'],
+  Prevalence = mean(test_normalized$Classes == "fire"),
+  Detection_Rate = KNN_metrics['Detection Rate'],
+  Detection_Prevalence = KNN_metrics['Detection Prevalence'],
+  Balanced_Accuracy = KNN_metrics['Balanced Accuracy'],
+  AUC = auc_KNN
+)
+
+```
+
+## Tree-Based Methods
+
+### Unpruned vs Pruned Trees
+
+#### Unpruned Trees
+
+The code trains an unpruned decision tree, visualizes its structure, makes predictions on the test data, and evaluates the model using a confusion matrix.
+```{R, message=F, warning=F}
+# Train an unpruned decision tree
+unpruned_tree <- rpart(Classes ~ Temperature + RH + Rain + FFMC + DMC + DC + ISI + BUI + FWI, data = train_normalized, method = "class", control = rpart.control(minsplit = 2, # An internal node will split if there are at least 2 observations.
+                                            minbucket = 1, # A leaf node will contain at least 1 observation.
+                                            cp = 0)) # The tree will grow as large as possible.
+
+# Plot the trees
+rpart.plot(unpruned_tree, main = "Unpruned Decision Tree")
+
+# Evaluate on test set
+models$unpruned_preds <- predict(unpruned_tree, test_normalized, type = "class")
+
+summary(unpruned_tree)
+
+```
+
+The decision tree utilizes several important variables in making predictions, with *FFMC*, *ISI*, and RH being the most influential features. The tree splits on these variables in the early nodes, which guide the classification of the fire and not fire classes. The detailed node analysis shows that the tree effectively handles class distribution, with the majority of observations being classified as "not fire" in certain nodes and "fire" in others.
+
+```{R message=FALSE, warning=FALSE}
+# Creating a confusion matrix to evaluate the model
+conf_matrix_unpruned <- confusionMatrix(data = models$unpruned_preds, reference = test_normalized$Classes)
+print(conf_matrix_unpruned)
+```
+
+The confusion matrix and associated statistics for the unpruned decision tree model indicate strong performance. The model achieved an overall accuracy of 97.26%, with a 95% confidence interval ranging from 90.45% to 99.67%. It exhibits high sensitivity (96.88%) and specificity (97.56%), indicating that it is both good at correctly identifying instances of fire (true positives) and not fire (true negatives).
+
+
+```{R, message=F, warning=F}
+# Predict probabilities on the test set
+models$unpruned_probabilities <- predict(unpruned_tree, test_normalized, type = "prob")
+
+# Extract probabilities for the positive class
+positive_class_probs <- models$unpruned_probabilities[, 2]
+
+# Generate the ROC curve
+roc_curve_unpruned <- roc(test_normalized$Classes, positive_class_probs, levels = rev(levels(test_normalized$Classes))) # Ensure levels are ordered correctly
+
+# Plot the ROC curve
+plot(roc_curve_unpruned, main = "ROC Curve for Unpruned Decision Tree", col = "blue", lwd = 2)
+
+# Calculate the AUC
+auc_unpruned <- auc(roc_curve_unpruned)
+
+# Add the AUC to the plot
+legend("bottomright", legend = paste("AUC =", round(auc_unpruned, 3)), col = "blue", lwd = 2)
+```
+
+With an AUC of 0.972, the model demonstrates excellent discriminative ability, suggesting that it performs almost perfectly at distinguishing between fire and not fire instances. This high AUC value further reinforces the results from the confusion matrix, showing that the unpruned decision tree is highly effective at classifying the data.
+
+```{R message=FALSE, warning=FALSE}
+unpruned_metrics <- conf_matrix_unpruned$byClass
+
+# Append unpruned results to the performance metrics table
+performance_metrics["Unpruned Trees", ] <- c(
+  Sensitivity = unpruned_metrics['Sensitivity'],
+  Specificity = unpruned_metrics['Specificity'],
+  Positive_Predictive_Value = unpruned_metrics['Pos Pred Value'],
+  Negative_Predictive_Value = unpruned_metrics['Neg Pred Value'],
+  Prevalence = mean(test_normalized$Classes == "fire"),
+  Detection_Rate = unpruned_metrics['Detection Rate'],
+  Detection_Prevalence = unpruned_metrics['Detection Prevalence'],
+  Balanced_Accuracy = unpruned_metrics['Balanced Accuracy'],
+  AUC = auc_unpruned
+)
+
+```
+
+#### Pruned Trees
+
+This code examines the complexity parameters of an unpruned decision tree to identify the optimal value for pruning, the one that minimizes the cross-validation error.
+
+```{R, message=F, warning=F}
+# Examine the complexity parameters
+printcp(unpruned_tree)  # Prints a table of complexity parameters and cross-validation errors
+plotcp(unpruned_tree)   # Plots the cross-validation error against cp values
+
+# Identify the best cp value (the one with the smallest xerror)
+optimal_cp <- unpruned_tree$cptable[which.min(unpruned_tree$cptable[, "xerror"]), "CP"]
+cat("Optimal cp value:", optimal_cp, "\n")
+
+```
+The optimal cp value, identified as 0.01351351, is the one that minimizes the cross-validation error (xerror). This value strikes a balance between tree complexity and overfitting, ensuring that the model is simplified without losing accuracy. This value is used to prune the tree.
+
+```{R, message=F, warning=F}
+# Prune the tree using the optimal cp value
+pruned_tree <- prune(unpruned_tree, cp = optimal_cp)
+
+# Visualize the pruned tree
+rpart.plot(pruned_tree, main = "Pruned Decision Tree")
+summary(pruned_tree)
+```
+
+The pruned decision tree results show a simplified model that effectively classifies fire events. The model splits on key variables such as *FFMC*, *ISI*, and FWI, which are identified as the most important predictors. After pruning, the tree splits into two nodes: Node 2 predicts "not fire" with 72 observations, all correctly classified, while Node 3 predicts "fire" with 98 observations, though it has only 2 misclassified instances (a 98% accuracy rate). 
+This tree provides a clear, efficient classification model, with minimal misclassification and effective use of the most relevant variables.
+
+```{R, message=F, warning=F}
+#Predict on test data and calculate accuracy
+models$pruned_preds <- predict(pruned_tree, newdata = test_normalized, type = "class")
+
+# Creating a confusion matrix to evaluate the model
+conf_matrix_pruned <- confusionMatrix(data = models$pruned_preds, reference = test_normalized$Classes)
+
+print(conf_matrix_pruned)
+```
+
+The confusion matrix and related statistics indicate that the model performs very well in distinguishing between "fire" and "not fire" classes. The accuracy of the model is 97.26%, with a 95% confidence interval between 90.45% and 99.67%, suggesting high reliability. The sensitivity is 93.75%, meaning the model is highly effective at detecting actual fire cases. The specificity is 100%, indicating perfect performance in identifying non-fire cases. The  precision is 100%, meaning every predicted "fire" was correct, while the negative predictive value is 95.35%, showing a high accuracy in predicting "not fire" cases. 
+
+```{R, message=F, warning=F}
+# Predict probabilities on the test set for the pruned tree
+models$pruned_probabilities <- predict(pruned_tree, test_normalized, type = "prob")
+
+# Extract probabilities for the positive class
+positive_class_probs_pruned <- models$pruned_probabilities[, 2]
+
+# Generate the ROC curve for the pruned tree
+roc_curve_pruned <- roc(test_normalized$Classes, positive_class_probs_pruned, levels = rev(levels(test_normalized$Classes)))  # Ensure correct level ordering
+
+# Plot the ROC curve for the pruned tree
+plot(roc_curve_pruned, main = "ROC Curve for Pruned Decision Tree", col = "red", lwd = 2)
+
+# Calculate the AUC for the pruned tree
+auc_pruned <- auc(roc_curve_pruned)
+
+# Add AUC value to the plot
+legend("bottomright", legend = paste("AUC =", round(auc_pruned, 3)), col = "red", lwd = 2)
+```
+
+An AUC of 0.969 indicates that the model has excellent performance in distinguishing between the 2 classes—"fire" and "not fire". This high AUC aligns with the other performance metrics, like accuracy and sensitivity, which demonstrate that the model is not only accurate but also very reliable in differentiating between the two classes.
+
+
+```{R message=FALSE, warning=FALSE}
+pruned_metrics <- conf_matrix_pruned$byClass
+
+# Append pruned results to the performance metrics table
+performance_metrics["Pruned Trees", ] <- c(
+  Sensitivity = pruned_metrics['Sensitivity'],
+  Specificity = pruned_metrics['Specificity'],
+  Positive_Predictive_Value = pruned_metrics['Pos Pred Value'],
+  Negative_Predictive_Value = pruned_metrics['Neg Pred Value'],
+  Prevalence = mean(test_normalized$Classes == "fire"),
+  Detection_Rate = pruned_metrics['Detection Rate'],
+  Detection_Prevalence = pruned_metrics['Detection Prevalence'],
+  Balanced_Accuracy = pruned_metrics['Balanced Accuracy'],
+  AUC = auc_pruned
+)
+
+```
+
+### Bagging
+This code applies the bagging technique for classification. Bagging or Bootstrap Aggregating is an ensemble learning method that improves the stability and accuracy of machine learning algorithms.
+
+```{R, message=F, warning=F}
+# Ensure Classes is a factor for classification
+train_normalized$Classes <- as.factor(train_normalized$Classes)
+test_normalized$Classes <- as.factor(test_normalized$Classes)
+
+# Bagging with all features
+set.seed(1)
+bag_model <- randomForest(Classes ~ Temperature + RH + Rain + FFMC + DMC + DC + ISI + BUI + FWI, data = train_normalized, mtry = 9, importance = TRUE)
+
+# Print the bagging model details
+print(bag_model)
+
+# Predict on test data
+models$bag_preds <- predict(bag_model, newdata = test_normalized)
+
+```
+
+The bagging model, implemented using a random forest algorithm with 500 trees, demonstrates excellent performance in classifying the "fire" and "not fire" classes. The Out-of-Bag (OOB) error rate is remarkably low at 2.35%, indicating that the model generalizes well and is not overfitting. The confusion matrix further confirms the model's high accuracy, with only 2 false negatives (not predicting fire when it is actually fire) and 2 false positives (predicting fire when it is actually not fire). This results in very low class errors: 2.7% for "not fire" and 2.1% for "fire." These results suggest that the model is highly effective in distinguishing between the two classes, with a minimal error rate overall. The use of 9 variables at each split appears to have contributed to the model's strong predictive performance.
+
+```{R message=FALSE, warning=FALSE}
+# Confusion Matrix
+conf_matrix_bag <- confusionMatrix(data = models$bag_preds, reference = test_normalized$Classes)
+print(conf_matrix_bag)
+```
+
+This confusion matrix shows that the model performs slightly better on the test data. The accuracy is very high at 98.63%, with a P-value less than 2e-16, indicating that the model significantly outperforms random guessing. The sensitivity (0.9688) indicates that the model successfully detects 96.88% of the "not fire" cases, while the specificity is perfect at 1, meaning the model correctly identifies all "fire" cases. Additionally, the positive predictive value is 1, which means that when the model predicts "not fire," it is correct 100% of the time. The negative predictive value is 0.9762, indicating that the model correctly classifies 97.62% of the "fire" cases when it predicts them. In conclusion, this bagging model performs exceptionally well with very few misclassifications.
+
+
+```{R, message=F, warning=F}
+# Predict probabilities for the ROC curve
+models$bag_probabilities <- predict(bag_model, newdata = test_normalized, type = "prob")
+
+# Extract probabilities for the positive class
+positive_class_probs_bag <- models$bag_probabilities[, 2]
+
+# Generate the ROC curve for the Bagging model
+roc_curve_bag <- roc(test_normalized$Classes, positive_class_probs_bag, 
+                     levels = rev(levels(test_normalized$Classes)))  # Ensure correct level ordering
+
+# Plot the ROC curve
+plot(roc_curve_bag, main = "ROC Curve for Bagging Model", col = "blue", lwd = 2)
+
+# Calculate the AUC for the Bagging model
+auc_bag <- auc(roc_curve_bag)
+
+# Add AUC value to the plot
+legend("bottomright", legend = paste("AUC =", round(auc_bag, 3)), col = "blue", lwd = 2)
+```
+
+Given the AUC of 0.998, the model performs with a very high level of precision, and its ROC curve is very close to the top-left corner of the plot, indicating that the model successfully distinguishes between the two classes with minimal errors. The AUC value reinforces the strong performance of the model, confirming that it has an excellent ability to predict both "fire" and "not fire" correctly.
+
+
+```{R message=FALSE, warning=FALSE}
+bag_metrics <- conf_matrix_bag$byClass
+
+# Append bagging results to the performance metrics table
+performance_metrics["Bagging", ] <- c(
+  Sensitivity = bag_metrics['Sensitivity'],
+  Specificity = bag_metrics['Specificity'],
+  Positive_Predictive_Value = bag_metrics['Pos Pred Value'],
+  Negative_Predictive_Value = bag_metrics['Neg Pred Value'],
+  Prevalence = mean(test_normalized$Classes == "fire"),
+  Detection_Rate = bag_metrics['Detection Rate'],
+  Detection_Prevalence = bag_metrics['Detection Prevalence'],
+  Balanced_Accuracy = bag_metrics['Balanced Accuracy'],
+  AUC = auc_bag
+)
+
+```
+
+
+### Random Forest
+Random Forest is an ensemble learning method that builds multiple decision trees during training and combines their predictions to improve accuracy and reduce overfitting.
+
+```{R, message=F, warning=F}
+# Train Random Forest
+set.seed(42)
+rf_model <- randomForest(Classes ~ Temperature + RH + Rain + FFMC + DMC + DC + ISI + BUI + FWI, data = train_normalized, ntree = 100, importance = TRUE)
+
+# Predict on test data
+models$rf_pred <- predict(rf_model, test_normalized)
+
+# Evaluate performance
+conf_matrix_RF <- confusionMatrix(models$rf_pred, test_normalized$Classes)
+print(conf_matrix_RF)
+
+```
+
+The results from the Random Forest model show excellent performance, with an overall accuracy of 97.26%. The sensitivity of 93.75% indicates that the model is highly effective at correctly identifying the "not fire" class, while the specificity of 100% shows it is flawless in identifying the "fire" class. The positive predictive value of 100% and negative predictive value of 95.35% highlight the model's reliability in both classes. Overall, the model demonstrates robust performance across all metrics, with a balanced accuracy of 96.88%.
+
+```{R, message=F, warning=F}
+# Feature Importance
+importance <- importance(rf_model)
+varImpPlot(rf_model, main = "Feature Importance (Random Forest)")
+
+```
+
+The feature importance plot from the Random Forest model indicates again that *FFMC*, *ISI*, and *FWI* are the most significant predictors, contributing the most to both model accuracy and node purity. In contrast, features like *Rain* and *Temperature* have minimal influence, highlighting the critical role of fire weather indices in predicting the target variable.
+
+```{R, message=F, warning=F}
+# Predict on test data (probabilities for ROC curve)
+models$rf_prob <- predict(rf_model, test_normalized, type = "prob")
+
+# Extract probabilities for the positive class
+positive_class_probs_rf <- models$rf_prob[, 2]
+
+# Generate the ROC curve
+roc_curve_rf <- roc(test_normalized$Classes, positive_class_probs_rf, 
+                    levels = rev(levels(test_normalized$Classes)))  # Ensure correct level ordering
+
+# Plot the ROC curve
+plot(roc_curve_rf, main = "ROC Curve for Random Forest Model", col = "darkgreen", lwd = 2)
+
+# Calculate the AUC
+auc_RF <- auc(roc_curve_rf)
+cat("AUC for Random Forest Model:", auc_RF, "\n")
+
+# Add AUC value to the plot
+legend("bottomright", legend = paste("AUC =", round(auc_RF, 3)), col = "darkgreen", lwd = 2)
+```
+
+An AUC of 0.998 indicates that the model is almost perfect at identifying the correct class, with very few misclassifications, and this strong performance is confirmed by the fact that it has a near-ideal ROC curve shape.
+
+
+```{R message=FALSE, warning=FALSE}
+RF_metrics <- conf_matrix_RF$byClass
+
+# Append random forest results to the performance metrics table
+performance_metrics["Random Forest", ] <- c(
+  Sensitivity = RF_metrics['Sensitivity'],
+  Specificity = RF_metrics['Specificity'],
+  Positive_Predictive_Value = RF_metrics['Pos Pred Value'],
+  Negative_Predictive_Value = RF_metrics['Neg Pred Value'],
+  Prevalence = mean(test_normalized$Classes == "fire"),
+  Detection_Rate = RF_metrics['Detection Rate'],
+  Detection_Prevalence = RF_metrics['Detection Prevalence'],
+  Balanced_Accuracy = RF_metrics['Balanced Accuracy'],
+  AUC = auc_RF
+)
+
+```
+
+
+### Gradient Boosting
+Gradient Boosting is an ensemble learning method that builds a model in a stage-wise manner by combining the predictions of multiple weak learners. It works by fitting each new tree to the residuals (errors) of the previous model, thereby improving the model iteratively. The model’s final prediction is a weighted sum of the predictions from all the trees.
+
+```{R, message=F, warning=F}
+# Train Gradient Boosting
+set.seed(42)
+gbm_model <- gbm(ClassesN ~ Temperature + RH + Rain + FFMC + DMC + DC + ISI + BUI + FWI, 
+                 data = train_normalized, 
+                 distribution = "bernoulli", 
+                 n.trees = 100, 
+                 interaction.depth = 5, 
+                 shrinkage = 0.1, 
+                 cv.folds = 5)
+
+# Select optimal number of trees
+best_trees <- gbm.perf(gbm_model, method = "cv")
+
+# Predict on test data
+models$gbm_pred_prob <- predict(gbm_model, test_normalized, n.trees = best_trees, type = "response")
+models$gbm_pred <- ifelse(models$gbm_pred_prob > 0.5, 1, 0)
+
+
+```
+
+This plot from gradient boosting shows the Bernoulli deviance (y-axis) over the number of iterations (x-axis), representing the model's training and validation performance. The black line represents the training error, and the green line represents the test error. Initially, both errors decrease as iterations progress, but beyond the point marked by the vertical blue line (indicating the optimal number of iterations), the test error begins to increase while the training error continues to decrease. This suggests overfitting beyond the optimal iteration, and the model achieves its best performance at the number of iterations marked by the blue line.
+
+```{R message=FALSE, warning=FALSE}
+# Evaluate performance
+conf_matrix_gbm <- confusionMatrix(as.factor(models$gbm_pred), as.factor(test_normalized$ClassesN))
+print(conf_matrix_gbm)
+
+```
+
+The results of the Gradient Boosting model demonstrate excellent performance on the dataset. The model achieved an accuracy of 98.63%, indicating that it correctly classified the majority of the samples. The model displayed perfect specificity (1), meaning it correctly identified all instances of fire, with no false positives. The sensitivity (0.9688) shows it correctly identified 96.88% of the instances of not fire, with just one false negative. The Positive Predictive Value (1) and Negative Predictive Value (0.9762) highlight the model's reliability in predicting both classes accurately. The Balanced Accuracy (0.9844) indicates strong performance across both classes. Additionally, the McNemar’s test p-value of 1 suggests no significant difference between the two classes’ misclassification rates, further validating the model's robustness. Overall, this Gradient Boosting model is highly effective for the task.
+
+
+```{R, message=F, warning=F}
+# Plot the ROC curve
+roc_gbm <- roc(test_normalized$ClassesN, models$gbm_pred_prob)
+plot(roc_gbm, col = "blue", main = "ROC Curve for GBM")
+auc_gbm <- auc(roc_gbm)
+
+# Add AUC value to the plot
+legend("bottomright", legend = paste("AUC =", round(auc_gbm, 3)), col = "blue", lwd = 2)
+```
+
+An AUC of 1 indicates that the model achieves perfect discrimination between the 2 classes. The ROC curve for this model is a perfect curve that passes through the top-left corner of the graph, representing 100% true positive rate and 0% false positive rate. This means the model flawlessly separates fire from the not fire, making no errors in classification at any threshold.
+
+
+```{R message=FALSE, warning=FALSE}
+gbm_metrics <- conf_matrix_gbm$byClass
+
+# Append gradient boosting results to the performance metrics table
+performance_metrics["Gradient Boosting", ] <- c(
+  Sensitivity = gbm_metrics['Sensitivity'],
+  Specificity = gbm_metrics['Specificity'],
+  Positive_Predictive_Value = gbm_metrics['Pos Pred Value'],
+  Negative_Predictive_Value = gbm_metrics['Neg Pred Value'],
+  Prevalence = mean(test_normalized$Classes == "fire"),
+  Detection_Rate = gbm_metrics['Detection Rate'],
+  Detection_Prevalence = gbm_metrics['Detection Prevalence'],
+  Balanced_Accuracy = gbm_metrics['Balanced Accuracy'],
+  AUC = auc_gbm
+)
+
+```
+
+## Support vector machines
+
+```{R, message=F, warning=F}
+# Define parameter grids for cost, gamma, and degree
+cost_options <- c(0.1, 1, 10)
+gamma_options <- c(0.1, 0.5, 1)
+degree_options <- c(2, 3, 4)
+
+# Function for Linear Kernel
+linear_kernel <- function(train_normalized, test_normalized, cost_options) {
+  results <- data.frame(
+    Kernel = character(),
+    Cost = numeric(),
+    Gamma = numeric(),
+    Degree = numeric(),
+    Accuracy = numeric(),
+    stringsAsFactors = FALSE
+  )
+  
+  for (cost in cost_options) {
+    model <- svm(Classes ~ Temperature + RH + Rain + FFMC + DMC + DC + ISI + BUI + FWI, data = train_normalized, kernel = "linear", cost = cost)
+    predictions <- predict(model, newdata = test_normalized)
+    accuracy <- sum(predictions == test_normalized$Classes) / nrow(test_normalized)
+    results <- rbind(results, data.frame(
+      Kernel = "linear",
+      Cost = cost,
+      Gamma = NA,  # Not applicable for linear kernel
+      Degree = NA, # Not applicable for linear kernel
+      Accuracy = accuracy
+    ))
+  }
+  
+  return(results)
+}
+
+# Function for Polynomial Kernel
+polynomial_kernel <- function(train_normalized, test_normalized, cost_options, gamma_options, degree_options) {
+  results <- data.frame(
+    Kernel = character(),
+    Cost = numeric(),
+    Gamma = numeric(),
+    Degree = numeric(),
+    Accuracy = numeric(),
+    stringsAsFactors = FALSE
+  )
+  
+  for (cost in cost_options) {
+    for (gamma in gamma_options) {
+      for (degree in degree_options) {
+        model <- svm(Classes ~ Temperature + RH + Rain + FFMC + DMC + DC + ISI + BUI + FWI, data = train_normalized, kernel = "polynomial", cost = cost, gamma = gamma, degree = degree)
+        predictions <- predict(model, newdata = test_normalized)
+        accuracy <- sum(predictions == test_normalized$Classes) / nrow(test_normalized)
+        results <- rbind(results, data.frame(
+          Kernel = "polynomial",
+          Cost = cost,
+          Gamma = gamma,
+          Degree = degree,
+          Accuracy = accuracy
+        ))
+      }
+    }
+  }
+  
+  return(results)
+}
+
+# Function for Radial Kernel
+radial_kernel <- function(train_normalized, test_normalized, cost_options, gamma_options) {
+  results <- data.frame(
+    Kernel = character(),
+    Cost = numeric(),
+    Gamma = numeric(),
+    Degree = numeric(),
+    Accuracy = numeric(),
+    stringsAsFactors = FALSE
+  )
+  
+  for (cost in cost_options) {
+    for (gamma in gamma_options) {
+      model <- svm(Classes ~ Temperature + RH + Rain + FFMC + DMC + DC + ISI + BUI + FWI, data = train_normalized, kernel = "radial", cost = cost, gamma = gamma)
+      predictions <- predict(model, newdata = test_normalized)
+      accuracy <- sum(predictions == test_normalized$Classes) / nrow(test_normalized)
+      results <- rbind(results, data.frame(
+        Kernel = "radial",
+        Cost = cost,
+        Gamma = gamma,
+        Degree = NA, # Not applicable for radial kernel
+        Accuracy = accuracy
+      ))
+    }
+  }
+  
+  return(results)
+}
+
+# Function for Sigmoid Kernel
+sigmoid_kernel <- function(train_normalized, test_normalized, cost_options, gamma_options) {
+  results <- data.frame(
+    Kernel = character(),
+    Cost = numeric(),
+    Gamma = numeric(),
+    Degree = numeric(),
+    Accuracy = numeric(),
+    stringsAsFactors = FALSE
+  )
+  
+  for (cost in cost_options) {
+    for (gamma in gamma_options) {
+      model <- svm(Classes ~ Temperature + RH + Rain + FFMC + DMC + DC + ISI + BUI + FWI, data = train_normalized, kernel = "sigmoid", cost = cost, gamma = gamma)
+      predictions <- predict(model, newdata = test_normalized)
+      accuracy <- sum(predictions == test_normalized$Classes) / nrow(test_normalized)
+      results <- rbind(results, data.frame(
+        Kernel = "sigmoid",
+        Cost = cost,
+        Gamma = gamma,
+        Degree = NA, # Not applicable for sigmoid kernel
+        Accuracy = accuracy
+      ))
+    }
+  }
+  
+  return(results)
+}
+linear_results <- linear_kernel(train_normalized, test_normalized, cost_options)
+polynomial_results <- polynomial_kernel(train_normalized, test_normalized, cost_options, gamma_options, degree_options)
+radial_results <- radial_kernel(train_normalized, test_normalized, cost_options, gamma_options)
+sigmoid_results <- sigmoid_kernel(train_normalized, test_normalized, cost_options, gamma_options)
+
+# View individual DataFrames
+print("Linear Kernel Results")
+print(linear_results)
+
+print("Polynomial Kernel Results")
+print(polynomial_results)
+
+print("Radial Kernel Results")
+print(radial_results)
+
+print("Sigmoid Kernel Results")
+print(sigmoid_results)
+
+```
+
+The results compare the accuracy of SVM models using different kernels (linear, polynomial, radial, and sigmoid) with varying hyperparameters. The linear kernel performs consistently well, achieving the highest accuracy of 0.9863 at Cost=10, suggesting that it effectively separates the classes without requiring complex transformations. The polynomial kernel shows significant sensitivity to its hyperparameters, achieving its best accuracy of 0.9315 at Cost=0.1, Gamma=1.0, and Degree=3, but fluctuates with changes in degree and gamma. The radial kernel achieves strong performance with a maximum accuracy of 0.9452 at Cost=1.0 and Gamma=0.1, although higher gamma values tend to reduce accuracy, indicating potential overfitting. The sigmoid kernel achieves a competitive accuracy of 0.9726 at Cost=1.0 and Gamma=0.1, but its performance is less stable than the other kernels, with significant drops at higher parameter values. Overall, the linear kernel emerges as the best choice for this dataset, followed by the radial kernel, while the polynomial and sigmoid kernels are more sensitive and less reliable.
+
+```{R, message=F, warning=F}
+# Combine all kernel results into a single data frame
+all_results <- rbind(linear_results, polynomial_results, radial_results, sigmoid_results)
+
+# Find the row with the highest accuracy
+best_result <- all_results[which.max(all_results$Accuracy), ]
+
+# Print the best result in the desired format
+cat("Best Result Across All Kernels:\n")
+cat("Kernel Type: ", best_result$Kernel, "\n")
+cat("Cost: ", best_result$Cost, "\n")
+cat("Gamma: ", ifelse(is.na(best_result$Gamma), "N/A", best_result$Gamma), "\n")
+cat("Degree: ", ifelse(is.na(best_result$Degree), "N/A", best_result$Degree), "\n")
+cat("Accuracy: ", best_result$Accuracy, "\n")
+
+```
+
+The code combines the results from all SVM kernel evaluations (linear, polynomial, radial, and sigmoid) into a single data frame and identifies the configuration with the highest accuracy. The output indicates that the best-performing configuration is the linear kernel with a cost parameter of 10, achieving an accuracy of 0.9863. Gamma and degree are marked as "N/A" since they are not applicable to the linear kernel.
+
+```{R, message=F, warning=F}
+# Confusion Matrix for Linear Kernel
+model_linear <- svm(Classes ~ . -ClassesN, data = train_normalized, kernel = "linear", cost = 10)  
+models$predictions_linear <- predict(model_linear, newdata = test_normalized)
+conf_matrix_linear <- confusionMatrix(models$predictions_linear, test_normalized$Classes)
+print("Confusion Matrix for Linear Kernel")
+print(conf_matrix_linear)
+
+```
+
+The confusion matrix for the linear kernel SVM model with the optimal cost parameter (Cost=10) shows exceptional classification performance. The model achieves an accuracy of 98.63%, with a 95% confidence interval of (0.926, 0.9997), indicating reliable predictions. Sensitivity (true positive rate) is 96.88%, meaning the model accurately identifies "not fire" cases, and specificity (true negative rate) is 100%, showing perfect identification of "fire" cases. The high Kappa statistic (0.9721) reflects strong agreement between the predicted and actual classifications. Positive predictive value (PPV) and negative predictive value (NPV) are also excellent at 100% and 96.88%, respectively, underscoring the model’s ability to make correct predictions. The balanced accuracy of 98.44% further confirms the model's effectiveness in handling imbalanced class distributions. Overall, the linear kernel SVM provides robust and reliable classification performance for this dataset.
+
+```{R, message=F, warning=F}
+# ROC Curve for Linear Kernel
+model_linear <- svm(Classes ~ . -ClassesN, data = train_normalized, kernel = "linear", cost = 10, probability = TRUE)
+models$probabilities_linear <- attributes(predict(model_linear, newdata = test_normalized, probability = TRUE))$probabilities
+roc_curve_linear <- roc(test_normalized$Classes, models$probabilities_linear[, 2])
+plot(roc_curve_linear, col = "orange", main = "ROC Curve for Linear Kernel")
+auc_linear <- auc(roc_curve_linear)
+legend("bottomright", legend = paste("AUC =", round(auc_linear, 3)), col = "orange", lwd = 2)
+
+```
+
+The ROC curve for the linear kernel SVM model with a cost of 10 illustrates excellent classification performance. The curve rises steeply toward the top-left corner, indicating high sensitivity and specificity across various thresholds. The Area Under the Curve (AUC) value of 0.995 confirms nearly perfect discrimination between the positive and negative classes. This result demonstrates that the model is highly effective at distinguishing between classes, with minimal misclassification.
+
+```{R message=FALSE, warning=FALSE}
+SVM_metrics <- conf_matrix_linear$byClass
+
+# Append Support Vector Machines results to the performance metrics table
+performance_metrics["linear kernel SVM", ] <- c(
+  Sensitivity = SVM_metrics['Sensitivity'],
+  Specificity = SVM_metrics['Specificity'],
+  Positive_Predictive_Value = SVM_metrics['Pos Pred Value'],
+  Negative_Predictive_Value = SVM_metrics['Neg Pred Value'],
+  Prevalence = mean(test_normalized$Classes == "fire"),
+  Detection_Rate = SVM_metrics['Detection Rate'],
+  Detection_Prevalence = SVM_metrics['Detection Prevalence'],
+  Balanced_Accuracy = SVM_metrics['Balanced Accuracy'],
+  AUC = auc_linear
+)
+
+```
+
+```{R, message=F, warning=F}
+# k-fold Cross-Validation
+
+# Set a seed for reproducibility
+set.seed(123)
+
+# Define the cross-validation settings (5-fold)
+control <- trainControl(
+  method = "cv",       
+  number = 5           
+)
+
+# Define the cost values for hyperparameter tuning
+cost_options <- expand.grid(C = c(0.1, 1, 10))  # Tuning grid for SVM cost parameter
+
+# Train the SVM model using cross-validation
+cv_model <- train(
+  Classes ~ . - ClassesN,   # Formula to exclude ClassesN from predictors
+  data = train_normalized,  # Training dataset
+  method = "svmLinear",     # SVM with a linear kernel
+  trControl = control,      # 5-fold cross-validation settings
+  tuneGrid = cost_options   # Grid of cost values for tuning
+)
+
+# Print the cross-validation results
+print(cv_model)
+
+# Print the best cost parameter and corresponding accuracy
+cat("Best Cost (C):", cv_model$bestTune$C, "\n")
+cat("Best Accuracy:", max(cv_model$results$Accuracy), "\n")
+
+```
+
+The code performs 5-fold cross-validation to tune the cost parameter (C) of an SVM model with a linear kernel, using accuracy as the performance metric. The results indicate that the best cost value is C=10, achieving the highest cross-validated accuracy of 95.31% and a Kappa statistic of 0.9046, which reflects strong agreement between predicted and actual classes. Lower cost values (=0.1 and C=1) result in slightly lower accuracy and Kappa values, showing that a higher cost provides better classification performance for this dataset. Cross-validation ensures that the selected C=10 generalizes well to unseen data. This makes the SVM model with a linear kernel and C=10 an optimal choice for the given problem.
+
+```{R, message=F, warning=F}
+#Leave-One-Out Cross-Validation method
+set.seed(123)
+control <- trainControl(method = "LOOCV")
+loocv_model <- train(
+  Classes ~ . -ClassesN, data = train_normalized,
+  method = "svmLinear",
+  trControl = control,
+  tuneGrid = expand.grid(C = cost_options)
+)
+
+print(loocv_model)
+
+summary(loocv_model)
+
+```
+
+Given the tie in LOOCV and the prior evidence favoring C=10, it is reasonable to conclude that C=10 is the best cost parameter for the SVM with a linear kernel. This parameter consistently demonstrates high accuracy and robustness across all validation methods.
+
+# Conclusion
+
+```{R message=FALSE, warning=FALSE}
+# Display the performance metrics table
+kable(performance_metrics, "html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+```
+
+The comprehensive summary of performance metrics across various classifiers reveals insightful patterns in their respective abilities to predict fire occurrences. Among all models, Gradient Boosting stands out with perfect scores in sensitivity, specificity, positive and negative predictive values, as well as an AUC of 1.00, indicating flawless classification performance. This model's remarkable results suggest a high degree of reliability and robustness in handling the dataset provided.
+
+The Random Forest model also demonstrates exceptional strength with a nearly perfect AUC of 0.9992, closely followed by models such as Bagging, and the SVM with a linear kernel, each showing high effectiveness in their predictive accuracy and classification ability. The consistency of high scores in both the Random Forest and SVM models highlights their robustness in dealing with various types of data disturbances such as noise and outliers.
+
+Conversely, the Linear Discriminant Analysis (LDA) model shows the weakest performance with the lowest AUC of 0.8956. While still respectable, it lags behind other models in effectively differentiating between the classes, as evidenced by its lower balanced accuracy and other metrics.
+
+In summary, Gradient Boosting is the most effective model for this dataset, offering unmatched accuracy and reliability, while LDA could be considered the least favorable due to its relatively lower performance metrics. This analysis underscores the importance of choosing the right model based on the specific characteristics and demands of the dataset at hand.
